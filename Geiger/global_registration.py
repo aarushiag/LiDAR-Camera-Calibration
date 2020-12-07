@@ -1,19 +1,9 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Sun Dec  6 02:25:07 2020
-
-@author: dell
-"""
 
 import numpy as np
 import cv2
-import glob
-import os
 import math
-import matplotlib.pyplot as plt
-import scipy.spatial.distance
 import random
-import operator as op
 from functools import reduce
 from sklearn.neighbors import NearestNeighbors
 from segmentation import *
@@ -22,12 +12,28 @@ from segmentation import *
 
 def global_registration(planes_camera, planes_lidar, normal_cam, normal_lidar, Z, tau, num_iterations):
     
+    """ Calculates the transformation between camera planes and lidar planes extracted from the segmentation stage.
+    Input :
+        planes_camera : List of segments in Camera point cloud.
+        planes_lidar : List of segments in Lidar point cloud.
+        normal_cam : Dictionary of normals mapped to the corresponding planes in camera frame.
+        normal_lidar : Dictionary of normals mapped to the corresponding planes in lidar frame.
+        Z : Normalizing constant for selecting the random plane triple.
+        tau : fraction of maximum score that can be allowed for a transformation to be included in final set.
+        num_iterations : Number of times the Algorithm 1 shall be implemented (= Number of transformations generated)
+        
+    Output :
+        List of refined transformations """
+    
+    # Form all the possible triples from the planes
     cam_triples = getTriples(planes_camera)
     lidar_triples = getTriples(planes_lidar)
     
+    # Calculate the probability weighst for each triple
     cam_weights = calc_weights(cam_triples, Z, normal_cam)
     lidar_weights = calc_weights(lidar_triples, Z, normal_lidar)
     
+    # Dictionary storing the triples which are already selected while calculating transformation
     isSelected = {}
     
     transformations = []
@@ -35,13 +41,27 @@ def global_registration(planes_camera, planes_lidar, normal_cam, normal_lidar, Z
     
     counter = 0
     while(counter < num_iterations):
-                      
+               
+        print("Iteration :- " + str(counter))
+        
         cam_tpl = random.choices(cam_triples, weights = cam_weights, k = 1)[0]
-        lidar_tpl = random.choices(lidar_triples, weights = lidar_weights, k = 1)[0]
+        
+        #Choose the corresponding lidar planes for the chosen planes in camera triple 
+        #(This is only used when we have corresponding lidar data, 
+        #if not then uncomment the commented and choose the lidar triple randomly)
+        
+        lidar_tpl = (planes_lidar[deep_index(planes_camera , cam_tpl[0])], 
+                    planes_lidar[deep_index(planes_camera , cam_tpl[1])],
+                    planes_lidar[deep_index(planes_camera , cam_tpl[2])])
+        
+        #lidar_tpl = random.choices(lidar_triples, weights = lidar_weights, k = 1)[0]
                 
         while(str((lidar_tpl,cam_tpl)) in isSelected.keys()):
             cam_tpl = random.choices(cam_triples, weights = cam_weights, k = 1)[0]
-            lidar_tpl = random.choices(lidar_triples, weights = lidar_weights, k = 1)[0]
+            # lidar_tpl = random.choices(lidar_triples, weights = lidar_weights, k = 1)[0]
+            lidar_tpl = (planes_lidar[deep_index(planes_camera , cam_tpl[0])], 
+                    planes_lidar[deep_index(planes_camera , cam_tpl[1])],
+                    planes_lidar[deep_index(planes_camera , cam_tpl[2])])
             
         isSelected[str((lidar_tpl,cam_tpl))] = 1
         
@@ -59,6 +79,7 @@ def global_registration(planes_camera, planes_lidar, normal_cam, normal_lidar, Z
         lidarNormals = np.asarray(lidarNormals)
         cameraNormals = np.asarray(cameraNormals)
         
+        # Change normals from a 3D vector to 2D vector
         A=np.asarray(cameraNormals[0])
         for i in range(1,len(cameraNormals)):
             A=np.hstack((A,cameraNormals[i]))
@@ -70,14 +91,15 @@ def global_registration(planes_camera, planes_lidar, normal_cam, normal_lidar, Z
         cameraPoints = [cam_tpl[0], cam_tpl[1], cam_tpl[2]]
         lidar_points = [lidar_tpl[0], lidar_tpl[1], lidar_tpl[2]]
         
+        # Find the centroids of the planes to calculate the transformation
         cameraCentres = findCentres(cameraPoints)
         lidarCentres = findCentres(lidar_points)
         
         rotationCTL = rotateCameraToLidar(A , B)
         translationCTL = translateCameraToLidar(cameraCentres, lidarCentres, lidarNormals, rotationCTL)
-        
         transformations.append((rotationCTL, translationCTL))
         
+        # Calculate the score of the transformation as defined in the paper
         score = findScoreTransformation(rotationCTL, translationCTL, cameraCentres, lidarCentres)
         scores.append(score)
         
@@ -87,97 +109,30 @@ def global_registration(planes_camera, planes_lidar, normal_cam, normal_lidar, Z
     max_score = max(scores)
     lower_threshold = tau * max_score
     
+    # Refine the transformation by choosing the higher scoring transformations
     for i in range(len(scores)):
         if(scores[i] > lower_threshold):
+            print(scores[i])
             final_transformation.append(transformations[i])
             
     return final_transformation
 
-def get_extrinsic_matrices(images, objpoints, imgpoints, objp):
-
-    # termination criteria
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
-    
-    for img in images:
-        
-        gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-
-        # Find the chess board corners
-        ret, corners = cv2.findChessboardCorners(gray, (8,6),None)
- 
-        # If found, add object points, image points (after refining them)
-        if ret == True:
-            objpoints.append(objp)
-
-            corners = np.reshape(corners, (48,2))
-            corners2 = cv2.cornerSubPix(gray,corners,(11,11),(-1,-1),criteria)
-            imgpoints.append(corners2)
-    
-    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1],None,None)
-    return rvecs, tvecs 
-
-def get_Rotation_Vectors(rvecs):
-
-    rvecs = np.asarray(rvecs)
-    rotation_vectors = []
-
-    for i in range(len(rvecs)):
-        rotation_matrix = np.zeros(shape=(3,3))
-        cv2.Rodrigues(rvecs[i], rotation_matrix)
-        rotation_vectors.append(rotation_matrix)
-
-    return rotation_vectors
-
-def normalInCameraFrame(rotation):
-
-    normalInWorld = [0,0,1]
-    normalInWorld = np.reshape(normalInWorld, (3,1))
-    cameraNormals = []
-    
-    for i in range(len(rotation)):
-        
-        vector = np.matmul(rotation[i],normalInWorld)
-        cameraNormals.append(vector)
-
-    return cameraNormals
-
-def normalInLidarFrame(lidar_points):
-
-    normals = []
-
-    for i in range(len(lidar_points)):
-        
-        point = lidar_points[i]
-        point = np.subtract(point , np.mean(point, axis = 0))
-        avg = np.linalg.norm(point[0])
-        for j in range(1, point.shape[0]):
-            avg += np.linalg.norm(point[j])  
-        avg = avg/point.shape[0]
-        point = point / avg  
-        
-        variables = np.concatenate((point[:,0:2] , np.ones((np.shape(point)[0],1),dtype=int)), axis = 1)
-        rhs = point[:,2]
-        rhs = rhs.reshape(np.shape(rhs)[0],1)
-        
-        x = np.linalg.lstsq(variables, rhs, rcond=None)
-        normal = np.concatenate((x[0][0:2], -1 * np.ones((1,1))))
-
-        modVal = math.sqrt(math.pow(normal[0],2) + math.pow(normal[1],2) + math.pow(normal[2],2))
-        normal = normal/modVal
-        
-        # If n.p0 where p0 is any point lying on the plane < 0 , this means n is in the direction of the plane, otherwise in the opposite direction.
-        # We need this step since by fixing c = -1, we are fixing the direction of c. Hence we must check the direction of normal with respect to the plane.
-
-        sign = np.matmul(normal.T,lidar_points[i][0].reshape((3,1)))
-        if(sign<0):
-            normal = 0-normal
-            
-        normals.append(normal)
-        
-    return normals
+def deep_index(lst, sub_list):
+    """ Find the index of a 2D vector in a list of 2D vectors"""
+    for i in range(len(lst)):
+        if((lst[i] == sub_list).all()):
+            return i 
 
 def rotateCameraToLidar(A,B):
     
+    """ Calculate the rotation matrix from A vectors to B vectors
+    Input :
+        A : (n x 3) ndarray of normals in a particular frame with n images.
+        B : (n x 3) ndarray of normals in a another frame with n images.
+        
+    Output :
+        R : (3 x 3) Rotation matrix such that AR = B"""
+        
     num_rows, num_cols = A.shape;
 
     # find mean column wise
@@ -198,10 +153,26 @@ def rotateCameraToLidar(A,B):
     U, S, Vt = np.linalg.svd(H)
     R = np.matmul(Vt.T , U.T)
         
+    # special reflection case
+    if np.linalg.det(R) < 0:
+       Vt[num_cols-1,:] *= -1
+       R = np.dot(Vt.T, U.T)
+       
     return R
 
 def translateCameraToLidar(cameraCentres, lidarCentres, lidarNormals, rotationCTL):
+    
+    """ Calculate the translation matrix from camera frame to lidar frame of reference
+    Input :
+        cameraCentres : List of (3 x 1) ndarray denoting the centroid of the camera planes.
+        lidarCentres : List of (3 x 1) ndarray denoting the centroid of the lidar planes.
+        lidarNormals : (n x 3 x 1) ndarray of normals in a another frame with n images.
+        rotationCTL : (3 x 3) rotation matrix.
+        
+    Output :
+        T : (3 x 1) Translation matrix such that P1*R + T = P2"""
 
+    # Solved by partial differentiation of the equation given in the paper (for minimizing)
     N0 = np.dot(lidarNormals[0], lidarNormals[0].T)
     cam = np.dot(N0, np.dot(rotationCTL, cameraCentres[0]))
     lidar = np.dot(N0, lidarCentres[0])
@@ -221,6 +192,9 @@ def translateCameraToLidar(cameraCentres, lidarCentres, lidarNormals, rotationCT
     return translationCTL[0]
 
 def findCentres(points):
+    
+    """ Find centroid of a plane """
+    
     centres = []
     for i in range(len(points)):
         centre = (np.sum(points[i], axis = 0)/len(points[i])).reshape((3,1))
@@ -228,6 +202,9 @@ def findCentres(points):
     return centres
 
 def getTriples(planes):
+    
+    """ Generate all the possible triplets from the planes. """
+    
     n = len(planes)
     triples = []
     for i in range(n):
@@ -237,6 +214,15 @@ def getTriples(planes):
     return triples
 
 def calc_weights(triples, Z, normals):
+    
+    """ Calculate the probability weights of each triple
+    Input :
+        triples : List of possible triples
+        Z : Normalizing constant for probability function
+        normals : Disctionary of planes mapped to their normals
+    Output :
+        List of weights for the corresponding triples"""
+        
     weights = []
     for i in range(len(triples)):
         tpl = triples[i]
@@ -250,22 +236,34 @@ def calc_weights(triples, Z, normals):
 
 def findNearest(transformedPoint, points):
     
+    """ Find the nearest point to a transformed point in the transformed point cloud
+    Input :
+        transformedPoint : Point from a frame (camera/lidar) transformed into another frame (lidar / camera)
+    Output :
+        Coordinate of the closest point in the destination frame
+        """        
     diff = np.subtract(transformedPoint, points[0])
     min_dist = np.linalg.norm(diff)
     closest = points[0]
     
     for i in range(1, len(points)):
-        diff = np.subtract(transformedPoint, points[0])
+        diff = np.subtract(transformedPoint, points[i])
         dist = np.linalg.norm(diff)
         
         if(dist < min_dist):
-            dist = min_dist
+            min_dist = dist
             closest = points[i]
             
     return closest
 
 def findScoreTransformation(rotationCTL, translationCTL, cameraCentres, lidarCentres):
     
+    """ Find the score of a transformation as mentioned in the paper
+    Input :
+        rotationCTL :  (3 x 3) Rotation matrix
+        translationCTL : (3 x 1) translation matrix
+        cameraCentres : Source points (Centroid of camera plane)
+        lidarCentres : Destination points (Centroid of lidar plane)"""
     score = 0
     for i in range(len(cameraCentres)):
         transformedCentre = np.add(np.matmul(rotationCTL, cameraCentres[i]) , translationCTL)
