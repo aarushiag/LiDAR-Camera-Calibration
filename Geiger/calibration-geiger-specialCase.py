@@ -1,3 +1,8 @@
+""" This code is written by Aarushi Agarwal (2016216)
+
+It is a specialized version of implementation of the Geiger paper section 2 (Global Registration),
+where we consider all the images together and calculate a single transformation. """
+
 import numpy as np
 import cv2
 import glob
