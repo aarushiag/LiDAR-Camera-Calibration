@@ -2,6 +2,8 @@ import numpy as np
 import cv2
 import os
 import matplotlib.pyplot as plt
+import scipy.spatial.distance
+import scipy
 from icp import *
 from segmentation import *
 from global_registration import * 
@@ -154,7 +156,7 @@ if __name__ == '__main__':
         translationCTL = transformations[i][1]
         
         score = findScoreTransformation(rotationCTL, translationCTL, cameraCentres, lidarCentres)
-        print("Initial :-" + score)
+        print("Initial :-" + str(score))
         
         Transformation =  np.concatenate((rotationCTL, translationCTL), axis = 1)
         B = np.asarray([0,0,0,1]).reshape(1,4)
@@ -165,10 +167,8 @@ if __name__ == '__main__':
         refined_translation = Tr[0:3,3].reshape(3,1)
         
         score = findScoreTransformation(refined_rotation, refined_translation, cameraCentres, lidarCentres)
-        print("Final :-" + score)
+        print("Final :-" + str(score))
         refined_scores.append(score)
-        
-        refined_scores.append(score)        
         refined_transformation.append((refined_rotation, refined_translation))
      
     # Suppress the similar transformations
@@ -185,3 +185,6 @@ if __name__ == '__main__':
     for cameraNormal,lidarNormal in zip(cameraNormals2,lidarNormals2):
         rotatedVector=np.matmul(rotationCTL,cameraNormal)
         rotVectors.append(rotatedVector)
+        
+    cosSim = findCosineSimilarity(rotVectors,lidarNormals2)
+    print(cosSim)
