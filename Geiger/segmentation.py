@@ -1,5 +1,6 @@
 import numpy as np
 import math
+from planefitting import*
 
 
 # ----------------------------------- SECTION A ---------------------------- #
@@ -21,7 +22,7 @@ def segmentation(points, k, threshold):
     #Calculate normal for each point by considering a plane of K nearest points
     for i in range(len(points)):
         N = findNearestK(points, i, k)
-        n = findPlaneNormal(N)
+        n = findPlaneRansac(N)
         normals[str(points[i])] = n   
         neighbours[str(points[i])] = N
         
@@ -36,13 +37,13 @@ def segmentation(points, k, threshold):
         nrj = normals[str(plane[0])]  #Seed's normal
         indexes = [] 
          
-        #Iterate over all thhe points to include those which have similar normal to the seed's normal
+        #Iterate over all the points to include those which have similar normal to the seed's normal
         for i in range(len(points)):
             neighbour = neighbours[str(points[i])]
             nri  = normals[str(points[i])]
             counter = 0
-            for j in range(len(neighbour)): 
-                if(isPresent(neighbour[j] , plane) and (np.dot(nri.T, nrj)[0][0] > threshold)):
+            for j in range(len(neighbour)):
+                if(isPresent(neighbour[j] , plane) and (abs(np.dot(nri.T, nrj)[0][0]) > threshold)):
                     counter = 1
                     break
                 
@@ -92,8 +93,33 @@ def findNearestK(points, index, k):
     N = []
     for i in range(k):
         N.append(neighbour[i][0])
+    N.append(point1)
     N = np.asarray(N)
     return N
+
+def findPlaneRansac(pts):
+    
+    n = pts.shape[0]
+    max_iterations = 100
+    goal_inliers = n * 0.3
+
+    # test data
+    xyzs = pts
+
+    # RANSAC
+    m, b = run_ransac(xyzs, estimate, lambda x, y: is_inlier(x, y, 0.01), 3, goal_inliers, max_iterations)
+    a, b, c, d = m
+    
+    normal = np.asarray([a,b,c]).reshape((3,1))
+    modVal = math.sqrt(math.pow(normal[0],2) + math.pow(normal[1],2) + math.pow(normal[2],2))
+    normal = normal/modVal
+    
+    sign = np.matmul(normal.T, pts[0].reshape((3,1)))
+    if(sign<0):
+        normal = 0-normal
+        
+    return normal
+    
 
 def findPlaneNormal(pts):
     

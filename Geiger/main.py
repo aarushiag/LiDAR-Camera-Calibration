@@ -100,7 +100,7 @@ if __name__ == '__main__':
     images,lidar_points = load_data()
     # The following code is commented since we assume that the data from 29 images are the planes extracted from the segmentation step
     
-    # planes_lidar = segmentation(lidar_points[0].copy(), 50, 0)
+    # planes_lidar = segmentation(lidar_points[0].copy(), 230, 0.3)
     # planes_camera = segmentation(camera_points[0].copy(), 50, 0)
     
 
