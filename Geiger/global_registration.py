@@ -112,7 +112,6 @@ def global_registration(planes_camera, planes_lidar, normal_cam, normal_lidar, Z
     # Refine the transformation by choosing the higher scoring transformations
     for i in range(len(scores)):
         if(scores[i] > lower_threshold):
-            print(scores[i])
             final_transformation.append(transformations[i])
             
     return final_transformation

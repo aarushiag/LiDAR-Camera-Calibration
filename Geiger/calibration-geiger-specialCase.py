@@ -14,7 +14,8 @@ import scipy.spatial.distance
 import random
 import open3d as o3d
 import copy
-import scipy 
+import scipy
+from global_registration import * 
 
 def findNearestK(points, index, k):
     
@@ -303,6 +304,30 @@ def findCosineSimilarity(rotVectors,trueNormals):
 
     return dists
 
+def randomSampling(total_pop, k ,cameraCentres, lidarCentres, lidarNormals):
+    population = np.arange(0, total_pop, 1).tolist()
+    randomPop = random.sample(population,k)
+
+    sampledCameraCentres = []
+    sampledLidarCentres = []
+    sampledLidarNormals = []
+
+    for i in range(len(randomPop)):
+        sampledCameraCentres.append(cameraCentres[randomPop[i]])
+        sampledLidarCentres.append(lidarCentres[randomPop[i]])
+        sampledLidarNormals.append(lidarNormals[randomPop[i]])
+
+    validation_CameraCentres = []
+    validation_LidarCentres = []
+    validation_LidarNormals = []
+    for i in range(total_pop):
+        if(i not in randomPop):
+            validation_CameraCentres.append(cameraCentres[i])
+            validation_LidarCentres.append(lidarCentres[i])
+            validation_LidarNormals.append(lidarNormals[i])
+            
+    return sampledCameraCentres, sampledLidarCentres, sampledLidarNormals, validation_CameraCentres, validation_LidarCentres, validation_LidarNormals
+
 # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
 objp = np.zeros((6*8,3), np.float32)
 objp[:,:2] = np.mgrid[0:8,0:6].T.reshape(-1,2)
@@ -344,4 +369,38 @@ for cameraNormal,lidarNormal in zip(cameraNormals,lidarNormals):
     rotVectors.append(rotatedVector)
     
 cosSim = findCosineSimilarity(rotVectors,lidarNormals)
-# planes = segmentation(lidar_points[0].copy(), 200, 0)
+
+S = findScoreTransformation(rotationCTL, translationCTL, cameraCentres, lidarCentres)
+print(S/len(cameraCentres))
+
+index=0
+for cameraNormal,lidarNormal in zip(cameraNormals,lidarNormals):
+    fig=plt.figure()
+    ax=fig.gca(projection='3d')
+    rotatedVector=np.matmul(rotationCTL,cameraNormal)
+    #x, y, z = np.meshgrid(np.arange(-0.8, 1, 0.2),np.arange(-0.8, 1, 0.2),np.arange(-0.8, 1, 0.8))
+    ax.quiver(0,0,0,cameraNormal[0],cameraNormal[1],cameraNormal[2],length=0.1,normalize=True,color="blue")
+    ax.quiver(0,0,0,lidarNormal[0],lidarNormal[1],lidarNormal[2],length=0.1,normalize=True,color="red")
+    #ax.quiver(pts[0][0],pts[0][1],pts[0][2],normal_camera_approx[0],normal_camera_approx[1],normal_camera_approx[2],length=0.1,normalize=True,color="green")
+    ax.quiver(0,0,0,rotatedVector[0],rotatedVector[1],rotatedVector[2],length=0.1,normalize=True,color="green")
+    plt.show()
+    if(index == 5):
+        break
+    index+=1
+    
+scores = []
+translationCTLSampled = []
+for i in range(100):
+    sampledCameraCentres, sampledLidarCentres, sampledLidarNormals, validation_CameraCentres, validation_LidarCentres, validation_LidarNormals = randomSampling(len(images), 15 ,cameraCentres, lidarCentres, lidarNormals)
+    sampledTranslationCTL = translateCameraToLidar(sampledCameraCentres, sampledLidarCentres, sampledLidarNormals, rotationCTL)
+    score = findScoreTransformation(rotationCTL, sampledTranslationCTL, validation_CameraCentres, validation_LidarCentres)
+    score = score / len(validation_LidarCentres)
+    scores.append(score)
+    translationCTLSampled.append(sampledTranslationCTL)
+    
+print(scores)
+
+mean = np.mean(translationCTLSampled, axis = 0)
+std = np.std(translationCTLSampled,axis = 0)
+upperBound = mean + std
+lowerBound = mean - std

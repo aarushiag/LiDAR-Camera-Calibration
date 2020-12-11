@@ -92,6 +92,30 @@ def findCosineSimilarity(rotVectors,trueNormals):
         dists.append(scipy.spatial.distance.cosine(rotVectors[i], trueNormals[i]))
 
     return dists
+
+def randomSampling(total_pop, k ,cameraCentres, lidarCentres, lidarNormals):
+    population = np.arange(0, total_pop, 1).tolist()
+    randomPop = random.sample(population,k)
+
+    sampledCameraCentres = []
+    sampledLidarCentres = []
+    sampledLidarNormals = []
+
+    for i in range(len(randomPop)):
+        sampledCameraCentres.append(cameraCentres[randomPop[i]])
+        sampledLidarCentres.append(lidarCentres[randomPop[i]])
+        sampledLidarNormals.append(lidarNormals[randomPop[i]])
+
+    validation_CameraCentres = []
+    validation_LidarCentres = []
+    validation_LidarNormals = []
+    for i in range(total_pop):
+        if(i not in randomPop):
+            validation_CameraCentres.append(cameraCentres[i])
+            validation_LidarCentres.append(lidarCentres[i])
+            validation_LidarNormals.append(lidarNormals[i])
+            
+    return sampledCameraCentres, sampledLidarCentres, sampledLidarNormals, validation_CameraCentres, validation_LidarCentres, validation_LidarNormals
             
 # ----------------------------------- MAIN ---------------------------- #
 
@@ -100,7 +124,8 @@ if __name__ == '__main__':
     images,lidar_points = load_data()
     # The following code is commented since we assume that the data from 29 images are the planes extracted from the segmentation step
     
-    # planes_lidar = segmentation(lidar_points[0].copy(), 230, 0.3)
+    # xyzs = np.concatenate((lidar_points[0],lidar_points[22]), axis = 0)
+    # planes_lidar = segmentation(xyzs.copy(), 200, 0.5)
     # planes_camera = segmentation(camera_points[0].copy(), 50, 0)
     
 
@@ -149,14 +174,15 @@ if __name__ == '__main__':
     
     # Refine transformations using ICP (Iterative closest Point) algorithm
     refined_transformation = []
-    refined_scores = []
+    refined_scores_normalized = []
     
     for i in range(len(transformations)):
         rotationCTL = transformations[i][0]
         translationCTL = transformations[i][1]
         
         score = findScoreTransformation(rotationCTL, translationCTL, cameraCentres, lidarCentres)
-        print("Initial :-" + str(score))
+        score = score/29
+        print("Initial Normalized Score : " + str(score))
         
         Transformation =  np.concatenate((rotationCTL, translationCTL), axis = 1)
         B = np.asarray([0,0,0,1]).reshape(1,4)
@@ -167,16 +193,16 @@ if __name__ == '__main__':
         refined_translation = Tr[0:3,3].reshape(3,1)
         
         score = findScoreTransformation(refined_rotation, refined_translation, cameraCentres, lidarCentres)
-        print("Final :-" + str(score))
-        refined_scores.append(score)
+        score = score/29
+        print("Final Normalized Score after ICP : " + str(score))
+        refined_scores_normalized.append(score)
         refined_transformation.append((refined_rotation, refined_translation))
      
     # Suppress the similar transformations
-    refined_transformation = non_maximum_suppression(refined_transformation, refined_scores, 50, 5)
+    refined_transformation = non_maximum_suppression(refined_transformation, refined_scores_normalized, 50, 5)
 
-    
-    # Calculate the cosine similarity between rotated vectors
-    cameraNormals2 = list(cameraNormals.values())
+    #Code for validating Rotation Vector [Calculate the cosine similarity between rotated vectors]
+    """cameraNormals2 = list(cameraNormals.values())
     lidarNormals2 = list(lidarNormals.values())
 
     rotVectors = []
@@ -187,4 +213,32 @@ if __name__ == '__main__':
         rotVectors.append(rotatedVector)
         
     cosSim = findCosineSimilarity(rotVectors,lidarNormals2)
-    print(cosSim)
+    print(cosSim)"""
+    
+    # Code for validating translation over testing Set
+    """testing_scores = []
+    translationCTLSampled = []
+    for i in range(100):
+        sampledCameraCentres, sampledLidarCentres, sampledLidarNormals, validation_CameraCentres, validation_LidarCentres, validation_LidarNormals = randomSampling(len(images), 15 ,cameraCentres, lidarCentres, lidarNormals2)
+        sampledTranslationCTL = translateCameraToLidar(sampledCameraCentres, sampledLidarCentres, sampledLidarNormals, rotationCTL)
+        score = findScoreTransformation(rotationCTL, sampledTranslationCTL, validation_CameraCentres, validation_LidarCentres)
+        score = score / len(validation_LidarCentres)
+        testing_scores.append(score)
+        translationCTLSampled.append(sampledTranslationCTL)    
+    print(testing_scores)"""
+    
+    #Code for visualizing Rotation vector
+    """index=0
+    for cameraNormal,lidarNormal in zip(cameraNormals,lidarNormals):
+        fig=plt.figure()
+        ax=fig.gca(projection='3d')
+        rotatedVector=np.matmul(rotationCTL,cameraNormal)
+        #x, y, z = np.meshgrid(np.arange(-0.8, 1, 0.2),np.arange(-0.8, 1, 0.2),np.arange(-0.8, 1, 0.8))
+        ax.quiver(0,0,0,cameraNormal[0],cameraNormal[1],cameraNormal[2],length=0.1,normalize=True,color="blue")
+        ax.quiver(0,0,0,lidarNormal[0],lidarNormal[1],lidarNormal[2],length=0.1,normalize=True,color="red")
+        #ax.quiver(pts[0][0],pts[0][1],pts[0][2],normal_camera_approx[0],normal_camera_approx[1],normal_camera_approx[2],length=0.1,normalize=True,color="green")
+        ax.quiver(0,0,0,rotatedVector[0],rotatedVector[1],rotatedVector[2],length=0.1,normalize=True,color="green")
+        plt.show()
+        if(index == 5):
+            break
+        index+=1"""

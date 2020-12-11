@@ -43,6 +43,7 @@ def segmentation(points, k, threshold):
             nri  = normals[str(points[i])]
             counter = 0
             for j in range(len(neighbour)):
+                # print(abs(np.dot(nri.T, nrj)[0][0]))
                 if(isPresent(neighbour[j] , plane) and (abs(np.dot(nri.T, nrj)[0][0]) > threshold)):
                     counter = 1
                     break
