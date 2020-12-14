@@ -22,6 +22,7 @@ def non_maximum_suppression(transformations, scores, threshR, threshT):
         list of distinct transformations.
     """
     B = []
+    discarded = []
     
     for i in range(len(transformations)):
         discard = False
@@ -48,10 +49,11 @@ def non_maximum_suppression(transformations, scores, threshR, threshT):
             
             # Discard the transformation if the adjacent transformation is higher in scoring
             if(similar):
-                if(scores[j] > scores[i]):
-                    print("DISCARDED TRANSFORMATION")
+                if(scores[j] >= scores[i]):
+                    # print("DISCARDED TRANSFORMATION")
                     discard = True
+                    discarded.append(i)
                     
         if not(discard):
             B.append(transformations[i])
-    return B
+    return B, discarded

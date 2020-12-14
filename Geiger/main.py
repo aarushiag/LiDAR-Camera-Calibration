@@ -116,6 +116,32 @@ def randomSampling(total_pop, k ,cameraCentres, lidarCentres, lidarNormals):
             validation_LidarNormals.append(lidarNormals[i])
             
     return sampledCameraCentres, sampledLidarCentres, sampledLidarNormals, validation_CameraCentres, validation_LidarCentres, validation_LidarNormals
+
+def newScore(rotationCTL, translationCTL, lidarNormals, lidarCentres, cameraCentres):
+    
+    lidarNor = list(lidarNormals.values())
+    
+    transformed = []
+    for i in range(len(cameraCentres)):
+        transformedCentre = np.add(np.matmul(rotationCTL, cameraCentres[i]) , translationCTL)
+        transformed.append(transformedCentre)
+    
+    lidar = np.dot(lidarNor[0].T , lidarCentres[0])[0]
+    for i in range(1, len(lidarCentres)):
+        lidar += np.dot(lidarNor[i].T , lidarCentres[i])[0]
+    lidar = lidar / len(lidarCentres)
+    
+    camera = np.dot(lidarNor[0].T , transformed[0])[0]
+    for i in range(1, len(cameraCentres)):
+        # lidarClosest = findNearest(transformed[i], lidarCentres)
+        index = i
+        # for j in range(len(lidarCentres)):
+        #     if(lidarCentres[j] == lidarClosest).all():
+        #        index = j 
+        camera += np.dot(lidarNor[index].T , transformed[i])[0]
+    camera = camera / len(cameraCentres)
+    
+    return(abs(lidar - camera))
             
 # ----------------------------------- MAIN ---------------------------- #
 
@@ -132,6 +158,7 @@ if __name__ == '__main__':
     # Calculate Camera 3D points by transforming world coordinates to camera frame of reference.
     objp = np.zeros((6*8,3), np.float32)
     objp[:,:2] = np.mgrid[0:8,0:6].T.reshape(-1,2)
+    objp = objp*0.108 #Scaling factor
     
     # Arrays to store object points and image points from all the images.
     objpoints = [] # 3d point in real world space
@@ -156,7 +183,7 @@ if __name__ == '__main__':
     
     Z = 1
     tau = 5
-    num_iterations = 100
+    num_iterations = 500
     
     cameraNormals = {}
     lidarNormals = {}
@@ -181,26 +208,29 @@ if __name__ == '__main__':
         translationCTL = transformations[i][1]
         
         score = findScoreTransformation(rotationCTL, translationCTL, cameraCentres, lidarCentres)
-        score = score/29
+        score = score/len(cameraCentres)
         print("Initial Normalized Score : " + str(score))
-        
+               
         Transformation =  np.concatenate((rotationCTL, translationCTL), axis = 1)
         B = np.asarray([0,0,0,1]).reshape(1,4)
         Transformation = np.concatenate((Transformation,B))
-        Tr = icp(cameraCentresShaped, lidarCentresShaped, init_pose=Transformation, max_iterations=20, tolerance=0.001)[0]
+        Tr = icp(cameraCentresShaped, lidarCentresShaped, init_pose=Transformation, max_iterations=100, tolerance=0.001)[0]
         
         refined_rotation = Tr[0:3,0:3]
         refined_translation = Tr[0:3,3].reshape(3,1)
         
         score = findScoreTransformation(refined_rotation, refined_translation, cameraCentres, lidarCentres)
-        score = score/29
+        score = score/len(cameraCentres)
         print("Final Normalized Score after ICP : " + str(score))
-        refined_scores_normalized.append(score)
+        
+        refined_scores_normalized.append(score.round(3))
         refined_transformation.append((refined_rotation, refined_translation))
      
     # Suppress the similar transformations
-    refined_transformation = non_maximum_suppression(refined_transformation, refined_scores_normalized, 50, 5)
-
+    refined, discarded = non_maximum_suppression(refined_transformation, refined_scores_normalized, 50, 5)
+    print(newScore(refined[0][0], refined[0][1], lidarNormals, lidarCentres, cameraCentres))
+    
+    
     #Code for validating Rotation Vector [Calculate the cosine similarity between rotated vectors]
     """cameraNormals2 = list(cameraNormals.values())
     lidarNormals2 = list(lidarNormals.values())
@@ -242,3 +272,28 @@ if __name__ == '__main__':
         if(index == 5):
             break
         index+=1"""
+        
+      
+    # Code for validating translation matrix
+    """ import matplotlib
+    import matplotlib.pyplot as plt
+    from mpl_toolkits import mplot3d
+    fig = plt.figure()
+    ax = mplot3d.Axes3D(fig)
+    
+    rotationCTL = refined_transformation[2][0]
+    translationCTL = refined_transformation[2][1]
+    lidarNormals = list(lidarNormals.values())
+    
+    transformed = []
+    for i in range(len(cameraCentres)):
+        transformedCentre = np.add(np.matmul(rotationCTL, cameraCentres[i]) , translationCTL)
+        transformed.append(transformedCentre)
+    
+    transformed = np.asarray(transformed)
+    transformed = transformed.reshape((transformed.shape[0],3))
+    lidarCentres = np.asarray(lidarCentres)
+    lidarCentres = lidarCentres.reshape((lidarCentres.shape[0],3))
+    
+    ax.scatter3D(lidarCentres.T[0], lidarCentres.T[1], lidarCentres.T[2], marker = 'o')
+    ax.scatter3D(transformed.T[0], transformed.T[1], transformed.T[2], marker = '^')"""

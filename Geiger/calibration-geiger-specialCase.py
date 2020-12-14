@@ -16,6 +16,9 @@ import open3d as o3d
 import copy
 import scipy
 from global_registration import * 
+import matplotlib
+import matplotlib.pyplot as plt
+from mpl_toolkits import mplot3d
 
 def findNearestK(points, index, k):
     
@@ -328,9 +331,11 @@ def randomSampling(total_pop, k ,cameraCentres, lidarCentres, lidarNormals):
             
     return sampledCameraCentres, sampledLidarCentres, sampledLidarNormals, validation_CameraCentres, validation_LidarCentres, validation_LidarNormals
 
+
 # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
 objp = np.zeros((6*8,3), np.float32)
 objp[:,:2] = np.mgrid[0:8,0:6].T.reshape(-1,2)
+objp = objp*0.108
 
 # Arrays to store object points and image points from all the images.
 objpoints = [] # 3d point in real world space
@@ -404,3 +409,34 @@ mean = np.mean(translationCTLSampled, axis = 0)
 std = np.std(translationCTLSampled,axis = 0)
 upperBound = mean + std
 lowerBound = mean - std
+
+
+# EVALUATING TRANSLATION
+fig = plt.figure()
+ax = mplot3d.Axes3D(fig)
+
+transformed = []
+for i in range(len(cameraCentres)):
+        transformedCentre = np.add(np.matmul(rotationCTL, cameraCentres[i]) , translationCTL)
+        transformed.append(transformedCentre)
+        
+lidar = np.dot(lidarNormals[0].T , lidarCentres[0])[0]
+for i in range(1, len(lidarCentres)):
+    lidar += np.dot(lidarNormals[i].T , lidarCentres[i])[0]
+lidar = lidar / len(lidarCentres)
+
+camera = np.dot(lidarNormals[0].T , transformed[0])[0]
+for i in range(1, len(cameraCentres)):
+    camera += np.dot(lidarNormals[i].T , transformed[i])[0]
+camera = camera / len(cameraCentres)
+
+print(abs(lidar - camera))
+
+#Plotting original and transformed points
+transformed = np.asarray(transformed)
+transformed = transformed.reshape((transformed.shape[0],3))
+lidarCentres = np.asarray(lidarCentres)
+lidarCentres = lidarCentres.reshape((lidarCentres.shape[0],3))
+
+ax.scatter3D(lidarCentres.T[0], lidarCentres.T[1], lidarCentres.T[2], marker = 'o')
+ax.scatter3D(transformed.T[0], transformed.T[1], transformed.T[2], marker = '^')
